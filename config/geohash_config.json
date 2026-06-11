@@ -1,0 +1,9 @@
+{
+  "home_lat": 43.661818,
+  "home_lon": -79.395159,
+  "w30_rule_start": "2008-05-27",
+  "dow_url": "http://geo.crox.net/djia/{year}/{month:02d}/{day:02d}",
+  "decimals": 5,
+  "distance_km": 40.0,
+  "manual_date": null
+}
