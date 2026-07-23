@@ -26,6 +26,7 @@ DISTANCE_KM = config["distance_km"]
 MANUAL_DATE = (
     date.fromisoformat(config["manual_date"]) if config["manual_date"] else None
 )
+GOOGLE_MAPS_API_KEY = config.get("google_maps_api_key", "")
 
 
 def hex2dec(hex16: str) -> float:
@@ -129,6 +130,72 @@ def haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     return r * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
 
 
+def _seconds_to_text(seconds: int) -> str:
+    """Convert a duration in seconds to a human-readable string."""
+    hours, remainder = divmod(seconds, 3600)
+    minutes = remainder // 60
+    if hours:
+        return f"{hours} hour{'s' if hours != 1 else ''} {minutes} min{'s' if minutes != 1 else ''}"
+    return f"{minutes} min{'s' if minutes != 1 else ''}"
+
+
+def get_driving_time(
+    origin_lat: float,
+    origin_lon: float,
+    dest_lat: float,
+    dest_lon: float,
+    api_key: str = GOOGLE_MAPS_API_KEY,
+) -> dict | None:
+    """
+    Call the Google Maps Routes API and return driving duration.
+
+    Returns a dict with keys:
+      - "duration_text": human-readable string (e.g. "1 hour 23 mins")
+      - "duration_seconds": integer seconds
+      - "distance_text": human-readable distance (e.g. "95.4 km")
+      - "distance_meters": integer metres
+    Returns None if the API key is missing or the request fails.
+    """
+    if not api_key:
+        return None
+
+    url = "https://routes.googleapis.com/directions/v2:computeRoutes"
+    headers = {
+        "Content-Type": "application/json",
+        "X-Goog-Api-Key": api_key,
+        "X-Goog-FieldMask": "routes.duration,routes.distanceMeters",
+    }
+    body = {
+        "origin": {
+            "location": {"latLng": {"latitude": origin_lat, "longitude": origin_lon}}
+        },
+        "destination": {
+            "location": {"latLng": {"latitude": dest_lat, "longitude": dest_lon}}
+        },
+        "travelMode": "DRIVE",
+        "routingPreference": "TRAFFIC_AWARE",
+    }
+    resp = requests.post(url, json=body, headers=headers, timeout=10)
+    resp.raise_for_status()
+    data = resp.json()
+
+    try:
+        route = data["routes"][0]
+        # Routes API returns duration as e.g. "4972s"
+        duration_seconds = int(route["duration"].rstrip("s"))
+        distance_meters = route["distanceMeters"]
+        distance_km = distance_meters / 1000
+        distance_text = f"{distance_km:.1f} km"
+        return {
+            "duration_text": _seconds_to_text(duration_seconds),
+            "duration_seconds": duration_seconds,
+            "distance_text": distance_text,
+            "distance_meters": distance_meters,
+        }
+    except (KeyError, IndexError, ValueError):
+        return None
+
+
 def surrounding_graticules(lat: float, lon: float):
     """Return the 8 neighboring integer graticules around the home graticule."""
     lat_i, lon_i = int(lat), int(lon)
@@ -183,6 +250,18 @@ def get_today_hashes(home_lat: float = HOME_LAT, home_lon: float = HOME_LON):
     closest_hash = min([home_candidate, *candidates], key=lambda c: c["distance_km"])
     within_distance = closest_hash["distance_km"] <= DISTANCE_KM
 
+    maps_destination_url = (
+        "https://www.google.com/maps/dir/?api=1&destination="
+        f"{closest_hash['hash']['lat']},{closest_hash['hash']['lng']}"
+    )
+
+    driving = get_driving_time(
+        home_lat,
+        home_lon,
+        closest_hash["hash"]["lat"],
+        closest_hash["hash"]["lng"],
+    )
+
     return {
         "date": today.isoformat(),
         "dow_date": dow_day.isoformat(),
@@ -191,8 +270,10 @@ def get_today_hashes(home_lat: float = HOME_LAT, home_lon: float = HOME_LON):
         "global": {"lat": global_.lat, "lng": global_.lng},
         "closest_hash": closest_hash,
         "closest_surrounding": closest_surrounding,
+        "maps_destination_url": maps_destination_url,
         "within_distance": within_distance,
         "distance": closest_hash["distance_km"],
+        "driving": driving,
     }
 
 
@@ -240,3 +321,9 @@ if __name__ == "__main__":
     )
     print(f"Distance   : {result['distance']} km")
     print(f"Within {DISTANCE_KM} km: {result['within_distance']}")
+    if result["driving"]:
+        print(
+            f"Drive      : {result['driving']['duration_text']} ({result['driving']['distance_text']})"
+        )
+    else:
+        print("Drive      : (no API key configured)")

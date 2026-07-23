@@ -33,10 +33,21 @@ def build_email_body() -> dict[str, str]:
             "Closest hash (home + 8 surrounding):\n"
             f"- Coordinates: {result['closest_hash']['hash']['lat']}, {result['closest_hash']['hash']['lng']}\n"
             f"- Graticule: {result['closest_hash']['graticule']['lat']}, {result['closest_hash']['graticule']['lng']}\n"
-            f"- Distance: {result['closest_hash']['distance_km']} km\n\n"
-            f"Within {DISTANCE_KM} km: {result['within_distance']}\n"
+            f"- Distance: {result['closest_hash']['distance_km']} km\n"
+            f"- Google Maps: {result['maps_destination_url']}\n"
+            + (
+                f"- Drive: {result['driving']['duration_text']} ({result['driving']['distance_text']})\n"
+                if result.get("driving")
+                else ""
+            )
+            + f"\nWithin {DISTANCE_KM} km: {result['within_distance']}\n"
         ),
-        "subject": f"[{result['date']}] Geohashing: {result['distance']} km",
+        "subject": f"[{result['date']}] Geohash: {result['distance']} km"
+        + (
+            f" | Drive: {result['driving']['duration_text']} ({result['driving']['distance_text']})\n"
+            if result.get("driving")
+            else ""
+        ),
     }
 
 
